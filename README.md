@@ -51,7 +51,7 @@ A simple utility to prepare image and caption datasets for Flux LoRA training us
 
 Basic usage:
 ```bash
-python dataset.py source_images_dir output_name \
+python app.py source_images_dir output_name \
   --base_model "path/to/base/model" \
   --text_encoder "path/to/text/encoder" \
   --clip_model "path/to/clip/model" \
@@ -60,7 +60,7 @@ python dataset.py source_images_dir output_name \
 
 Full options:
 ```bash
-python dataset.py source_images_dir output_name \
+python app.py source_images_dir output_name \
   --base_model "path/to/base/model" \
   --text_encoder "path/to/text/encoder" \
   --clip_model "path/to/clip/model" \
