@@ -4,13 +4,13 @@ import torch
 import shutil
 import argparse
 from PIL import Image
-from colorpaws import setup_logger
+from colorpaws import configure
 from transformers import AutoProcessor, AutoModelForCausalLM
 
 class DatamakerFluxLora:
     def __init__(self):
         """Initialize DatamakerFlux"""
-        self.logger = setup_logger(self.__class__.__name__, log_on=True)
+        self.logger = configure(self.__class__.__name__, log_on=True)
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.torch_dtype = torch.float16
         self.captioning_model = None
