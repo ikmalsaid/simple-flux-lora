@@ -7,15 +7,15 @@ from PIL import Image
 from colorpaws import configure
 from transformers import AutoProcessor, AutoModelForCausalLM
 
-class DatamakerFluxLora:
+class SimpleFluxLora:
+    """Copyright (C) 2025 Ikmal Said. All rights reserved."""
     def __init__(self):
-        """Initialize DatamakerFlux"""
+        """Initialize SimpleFluxLora"""
         self.logger = configure(self.__class__.__name__, log_on=True)
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.torch_dtype = torch.float16
         self.captioning_model = None
         self.processor = None
-
         self.logger.info(f"{self.__class__.__name__} is ready!")
 
     def __setup_output_folder(self, output_name):
@@ -386,9 +386,9 @@ if __name__ == "__main__":
     args = parser.parse_args()
     
     # Initialize and run dataset creation
-    datamaker = DatamakerFluxLora()
+    lora = SimpleFluxLora()
     try:
-        output_folder = datamaker.create_dataset(
+        output_folder = lora.create_dataset(
             source_image_dir=args.source_dir,
             output_name=args.output_name,
             base_model=args.base_model,
@@ -405,5 +405,6 @@ if __name__ == "__main__":
             max_images=args.max_images
         )
         print(f"\nDataset created successfully in: {output_folder}")
+    
     except Exception as e:
         print(f"\nError creating dataset: {str(e)}")
