@@ -25,19 +25,37 @@ class SimpleFluxLora:
             os.makedirs(output_folder)
         return output_folder
 
+    def __process_and_save_image(self, image_path, caption):
+        """Process and save a single image and its caption"""
+        new_image_path = os.path.join(self.dataset_folder, os.path.basename(image_path))
+        new_caption_path = os.path.splitext(new_image_path)[0] + ".txt"
+        
+        # Resize and save image
+        self.__resize_image(image_path, new_image_path, self.image_size)
+        
+        # Save caption
+        with open(new_caption_path, 'w') as f:
+            f.write(caption)
+        
+        self.logger.info(f"Saved processed image and caption for: {os.path.basename(image_path)}")
+
     def __process_captions(self, images, trigger_keyword, auto_caption, manual_captions):
         """Process and generate captions based on specified method"""
+        if not trigger_keyword or trigger_keyword.strip() == "":
+            raise ValueError("trigger_keyword is required and cannot be blank")
+            
         if manual_captions is not None:
             if len(manual_captions) != len(images):
                 raise ValueError(f"Number of manual captions ({len(manual_captions)}) "
                                f"does not match number of images ({len(images)})")
             self.logger.info("Using provided manual captions for all images")
+            for image, caption in zip(images, manual_captions):
+                self.__process_and_save_image(image, caption)
             return manual_captions
             
         self.logger.info(f"Auto-captioning is {'enabled' if auto_caption else 'disabled'}")
-        if not auto_caption:
-            self.logger.info(f"Using trigger keyword '{trigger_keyword}' for images without existing captions")
-            
+        self.logger.info(f"Using trigger keyword '{trigger_keyword}'")
+        
         # First check for existing caption files
         captions = []
         images_needing_captions = []
@@ -51,11 +69,14 @@ class SimpleFluxLora:
                     if content:  # If file exists and has content
                         existing_caption_count += 1
                         captions.append(content)
+                        self.__process_and_save_image(image, content)
                         continue
             
             # No valid caption file found
             if not auto_caption:
-                captions.append(trigger_keyword if trigger_keyword else "")
+                caption = trigger_keyword
+                captions.append(caption)
+                self.__process_and_save_image(image, caption)
             else:
                 images_needing_captions.append(image)
                 captions.append(None)
@@ -106,7 +127,9 @@ class SimpleFluxLora:
         for i, image_path in enumerate(image_paths, 1):
             self.logger.info(f"Generating caption for image {i}/{total_images}: {os.path.basename(image_path)}")
             caption = self.__generate_single_caption(image_path, trigger_keyword)
+            self.__process_and_save_image(image_path, caption)
             captions.append(caption)
+        
         return captions
 
     def __generate_single_caption(self, image_path, trigger_keyword=None):
@@ -282,10 +305,20 @@ keep_tokens = 1
         images.sort()
         return images
 
-    def create_dataset(self, source_image_dir, output_name, trigger_keyword=None, auto_caption=False,
+    def __load_manual_captions(self, caption_file):
+        """Load manual captions from a text file"""
+        try:
+            with open(caption_file, 'r', encoding='utf-8') as f:
+                captions = [line.strip() for line in f.readlines() if line.strip()]
+            self.logger.info(f"Loaded {len(captions)} captions from {caption_file}")
+            return captions
+        except Exception as e:
+            raise ValueError(f"Error loading caption file: {str(e)}")
+
+    def create_dataset(self, source_image_dir, output_name, trigger_keyword, auto_caption=False,
                        base_model=None, text_encoder=None, clip_model=None, vae_model=None, 
-                       manual_captions=None, image_size=512, num_repeats=10, max_train_epochs=16,
-                       save_every_n_epochs=4, vram="12G", max_images=150):
+                       manual_captions=None, caption_file=None, image_size=512, num_repeats=10, 
+                       max_train_epochs=16, save_every_n_epochs=4, vram="12G", max_images=150):
         """
         Main function to create a complete dataset with training files
         
@@ -296,9 +329,10 @@ keep_tokens = 1
             text_encoder: Path to text encoder
             clip_model: Path to CLIP model
             vae_model: Path to VAE model
-            trigger_keyword: Optional trigger keyword for captions
+            trigger_keyword: Required trigger keyword for captions
             auto_caption: Whether to auto-generate captions
             manual_captions: Optional list of manual captions
+            caption_file: Optional path to a text file containing manual captions
             image_size: Target image size
             num_repeats: Number of times to repeat the dataset
             max_train_epochs: Maximum number of training epochs
@@ -317,7 +351,23 @@ keep_tokens = 1
         self.image_size = image_size
         self.vram = vram
         
-        # Get list of images from directory
+        # Setup output folders
+        output_folder = self.__setup_output_folder(output_name)
+        self.dataset_folder = os.path.join(output_folder, "dataset")
+        if not os.path.exists(self.dataset_folder):
+            os.makedirs(self.dataset_folder)
+        
+        # Validate caption generation methods
+        caption_methods = sum([bool(auto_caption), bool(manual_captions), bool(caption_file)])
+        if caption_methods > 1:
+            raise ValueError("Only one caption method can be used. Choose either auto_caption, "
+                           "manual_captions, or caption_file.")
+        
+        # Handle manual captions from file if specified
+        if caption_file:
+            manual_captions = self.__load_manual_captions(caption_file)
+        
+        # Get list of images and process
         source_images = self.__get_images_from_directory(source_image_dir)
         total_images = len(source_images)
         
@@ -327,13 +377,17 @@ keep_tokens = 1
         if total_images > self.max_images:
             raise ValueError(f"Maximum allowed images is {self.max_images}")
         
-        # Continue with existing flow
-        output_folder = self.__setup_output_folder(output_name)
+        if manual_captions and len(manual_captions) != total_images:
+            raise ValueError(f"Number of manual captions ({len(manual_captions)}) "
+                           f"does not match number of images ({total_images})")
+        
+        # Process captions
         captions = self.__process_captions(source_images, trigger_keyword, 
-                                         auto_caption, manual_captions)
-        self.__create_dataset_files(source_images, captions, output_folder, image_size)
+                                           auto_caption, manual_captions)
+        
+        # Generate training configs
         self.__generate_training_configs(output_folder, base_model, text_encoder, 
-                                       clip_model, vae_model, trigger_keyword)
+                                         clip_model, vae_model)
         
         # Calculate processing time
         total_time = time.time() - start_time
@@ -351,7 +405,7 @@ keep_tokens = 1
         self.logger.info("Configuration Details:")
         self.logger.info("-" * 40)
         self.logger.info(f"Auto-captioning: {'Enabled' if auto_caption else 'Disabled'}")
-        self.logger.info(f"Trigger keyword: {trigger_keyword if trigger_keyword else 'None'}")
+        self.logger.info(f"Trigger keyword: {trigger_keyword}")
         self.logger.info(f"Dataset repeats: {num_repeats}")
         self.logger.info(f"Training epochs: {max_train_epochs}")
         self.logger.info(f"Save frequency: Every {save_every_n_epochs} epochs")
@@ -366,6 +420,7 @@ if __name__ == "__main__":
     # Required arguments
     parser.add_argument("source_dir", help="Directory containing source images")
     parser.add_argument("output_name", help="Name for the output folder and LoRA model")
+    parser.add_argument("--trigger_keyword", required=True, help="Required trigger keyword for captions")
     
     # Model paths
     parser.add_argument("--base_model", required=True, help="Path to the base model")
@@ -373,9 +428,14 @@ if __name__ == "__main__":
     parser.add_argument("--clip_model", required=True, help="Path to the CLIP model")
     parser.add_argument("--vae_model", required=True, help="Path to the VAE model")
     
+    # Caption group - make them mutually exclusive
+    caption_group = parser.add_mutually_exclusive_group()
+    caption_group.add_argument("--auto_caption", action="store_true", 
+                             help="Enable automatic image captioning")
+    caption_group.add_argument("--caption_file", 
+                             help="Path to a text file containing manual captions (one per line)")
+    
     # Optional arguments
-    parser.add_argument("--trigger_keyword", help="Optional trigger keyword for captions")
-    parser.add_argument("--auto_caption", action="store_true", help="Enable automatic image captioning")
     parser.add_argument("--image_size", type=int, default=512, help="Target image size (default: 512)")
     parser.add_argument("--num_repeats", type=int, default=10, help="Number of times to repeat the dataset (default: 10)")
     parser.add_argument("--max_train_epochs", type=int, default=16, help="Maximum number of training epochs (default: 16)")
@@ -391,12 +451,13 @@ if __name__ == "__main__":
         output_folder = lora.create_dataset(
             source_image_dir=args.source_dir,
             output_name=args.output_name,
+            trigger_keyword=args.trigger_keyword,
+            auto_caption=args.auto_caption,
             base_model=args.base_model,
             text_encoder=args.text_encoder,
             clip_model=args.clip_model,
             vae_model=args.vae_model,
-            trigger_keyword=args.trigger_keyword,
-            auto_caption=args.auto_caption,
+            caption_file=args.caption_file,
             image_size=args.image_size,
             num_repeats=args.num_repeats,
             max_train_epochs=args.max_train_epochs,
@@ -404,7 +465,7 @@ if __name__ == "__main__":
             vram=args.vram,
             max_images=args.max_images
         )
-        print(f"\nDataset created successfully in: {output_folder}")
+        lora.logger.info(f"Dataset created successfully in: {output_folder}")
     
     except Exception as e:
-        print(f"\nError creating dataset: {str(e)}")
+        lora.logger.error(f"Error creating dataset: {str(e)}")

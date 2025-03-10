@@ -1,2 +1,7 @@
 colorpaws
 transformers
+torch
+torchvision
+pillow
+einops
+timm
