@@ -4,14 +4,14 @@ import torch
 import shutil
 import argparse
 from PIL import Image
-from colorpaws import configure
+from colorpaws import ColorPaws
 from transformers import AutoProcessor, AutoModelForCausalLM
 
 class SimpleFluxLora:
     """Copyright (C) 2025 Ikmal Said. All rights reserved."""
     def __init__(self):
         """Initialize SimpleFluxLora"""
-        self.logger = configure(self.__class__.__name__, log_on=True)
+        self.logger = ColorPaws(self.__class__.__name__, log_on=True)
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.torch_dtype = torch.float16
         self.captioning_model = None
